@@ -1,0 +1,126 @@
+import openai
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.linear_model import SGDClassifier
+from sklearn.pipeline import Pipeline
+import pickle
+
+class QueryClassifier:
+    def _init_(self, model_path="query_classifier.pkl"):
+        self.model_path = model_path
+        self.classes = ["tech", "non-tech"]  # All valid labels
+        try:
+            # Load the pre-trained model if it exists
+            with open(self.model_path, "rb") as f:
+                self.pipeline = pickle.load(f)
+            self.is_first_fit = False  # Model already trained
+        except FileNotFoundError:
+            # Initialize a new model if none exists
+            self.pipeline = Pipeline([
+                ("tfidf", TfidfVectorizer()),
+                ("classifier", SGDClassifier(loss="log_loss"))
+            ])
+            # Start with some initial training data
+            initial_data = [
+                "What is AI?", "How does programming work?", "Explain machine learning algorithms.",
+                "How to bake a cake?", "Where is the nearest grocery store?", "What are the best vacation spots?"
+            ]
+            initial_labels = ["tech", "tech", "tech", "non-tech", "non-tech", "non-tech"]
+            self.pipeline.fit(initial_data, initial_labels)
+            self.is_first_fit = True  # First fit for the new model
+
+    def classify(self, query):
+        """Classifies the query as tech or non-tech."""
+        return self.pipeline.predict([query])[0]
+
+    def retrain(self, query, correct_label):
+        """Retrains the model with new feedback."""
+        # Extract the vectorizer and classifier from the pipeline
+        tfidf_vectorizer = self.pipeline.named_steps["tfidf"]
+        classifier = self.pipeline.named_steps["classifier"]
+
+        # Transform the input query into a feature vector
+        query_vector = tfidf_vectorizer.transform([query])
+
+        # Retrain the classifier
+        if self.is_first_fit:
+            classifier.partial_fit(query_vector, [correct_label], classes=self.classes)
+            self.is_first_fit = False
+        else:
+            classifier.partial_fit(query_vector, [correct_label])
+
+        # Save the updated pipeline
+        with open(self.model_path, "wb") as f:
+            pickle.dump(self.pipeline, f)
+
+class AnswerGenerator:
+    def _init_(self, api_key):
+        """Initializes the OpenAI model."""
+        openai.api_key = "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"
+
+    def generate(self, query):
+        """Generates a response using the OpenAI model."""
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": query}]
+        )
+        return response['choices'][0]['message']['content']
+
+class Translator:
+    def _init_(self, api_key):
+        """Initializes the translator using OpenAI's GPT model."""
+        openai.api_key = "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"
+
+    def translate(self, text, target_language):
+        """Translates text to the target language using OpenAI."""
+        prompt = (
+            f"Translate the following text into {target_language}:\n"
+            f"Text: {text}"
+        )
+        response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response['choices'][0]['message']['content']
+
+def main():
+    # Replace with your OpenAI API key
+    api_key = "sk-YourActualAPIKeyHere"  # Replace with your OpenAI API key
+    classifier = QueryClassifier()
+    answer_generator = AnswerGenerator(api_key)
+    translator = Translator(api_key)
+
+    while True:
+        query = input("Enter your query (type 'exit' to quit): ")
+        if query.lower() == 'exit':
+            print("Goodbye!")
+            break
+
+        # Classify query
+        classification = classifier.classify(query)
+        print(f"Query Classification: {classification}")
+
+        # Ask for classification feedback
+        classification_feedback = input("Was the classification correct? (yes/no): ").strip().lower()
+        if classification_feedback == "no":
+            correct_label = input("Please provide the correct label (tech/non-tech): ").strip().lower()
+            classifier.retrain(query, correct_label)
+            print("Thank you! The classification system has been updated.")
+
+        # Generate answer
+        answer = answer_generator.generate(query)
+        print(f"Bot Response: {answer}")
+
+        # Ask if translation is needed
+        need_translation = input("Do you need a translation? (yes/no): ").strip().lower()
+        if need_translation == "yes":
+            target_language = input("Enter your preferred language (e.g., 'Hindi', 'French', etc.): ").strip()
+            translated_answer = translator.translate(answer, target_language)
+            print(f"Bot Response in {target_language.upper()}: {translated_answer}")
+
+        # Ask for user satisfaction feedback
+        satisfaction_feedback = input("Are you satisfied with the answer? (yes/no): ").strip().lower()
+        if satisfaction_feedback == "no":
+            print("Thank you for your feedback! We'll strive to improve further.")
+
+if _name_ == "_main_":
+    main()
